@@ -9,6 +9,7 @@ this script when no arguments are supplied.
 """
 import re
 import sys
+import urllib.request
 from pathlib import Path
 import pdfplumber
 from openpyxl import Workbook
@@ -418,13 +419,319 @@ def parse_uc_pages(pages):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# County & FIPS enrichment
+# ─────────────────────────────────────────────────────────────────────────────
+
+FCC_FIPS_URL = "https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt"
+
+# Minimum number of entries expected after successfully parsing the FCC FIPS
+# file (~3 200 county entries in the real file; 200 guards against truncation).
+_MIN_EXPECTED_FIPS_ENTRIES = 200
+
+# Maps the 2-digit state FIPS prefix to the state abbreviation.
+# Used to determine state from a 5-digit county FIPS code while parsing the
+# FCC file without tracking section headers.
+_STATE_FIPS_TO_ABBREV = {
+    "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA",
+    "08": "CO", "09": "CT", "10": "DE", "11": "DC", "12": "FL",
+    "13": "GA", "15": "HI", "16": "ID", "17": "IL", "18": "IN",
+    "19": "IA", "20": "KS", "21": "KY", "22": "LA", "23": "ME",
+    "24": "MD", "25": "MA", "26": "MI", "27": "MN", "28": "MS",
+    "29": "MO", "30": "MT", "31": "NE", "32": "NV", "33": "NH",
+    "34": "NJ", "35": "NM", "36": "NY", "37": "NC", "38": "ND",
+    "39": "OH", "40": "OK", "41": "OR", "42": "PA", "44": "RI",
+    "45": "SC", "46": "SD", "47": "TN", "48": "TX", "49": "UT",
+    "50": "VT", "51": "VA", "53": "WA", "54": "WV", "55": "WI",
+    "56": "WY",
+}
+
+# County lookup keyed by (city_lower, STATE_ABBREV).
+# Sourced from public web data for all NRC nuclear plant locations, using
+# Plant Name + Location as identifiers.
+_CITY_COUNTY_MAP = {
+    ("london",           "AR"): "Pope County",
+    ("shippingport",     "PA"): "Beaver County",
+    ("braceville",       "IL"): "Will County",
+    ("southport",        "NC"): "Brunswick County",
+    ("byron",            "IL"): "Ogle County",
+    ("fulton",           "MO"): "Callaway County",
+    ("lusby",            "MD"): "Calvert County",
+    ("york",             "SC"): "York County",
+    ("clinton",          "IL"): "DeWitt County",
+    ("glen rose",        "TX"): "Somervell County",
+    ("brownville",       "NE"): "Nemaha County",
+    ("oak harbor",       "OH"): "Ottawa County",
+    ("avila beach",      "CA"): "San Luis Obispo County",
+    ("bridgman",         "MI"): "Berrien County",
+    ("baxley",           "GA"): "Appling County",
+    ("newport",          "MI"): "Monroe County",
+    ("port gibson",      "MS"): "Claiborne County",
+    ("hartsville",       "SC"): "Darlington County",
+    ("hancocks bridge",  "NJ"): "Salem County",
+    ("scriba",           "NY"): "Oswego County",
+    ("columbia",         "AL"): "Houston County",
+    ("marseilles",       "IL"): "LaSalle County",
+    ("limerick",         "PA"): "Montgomery County",
+    ("huntersville",     "NC"): "Mecklenburg County",
+    ("waterford",        "CT"): "New London County",
+    ("monticello",       "MN"): "Wright County",
+    ("seneca",           "SC"): "Oconee County",
+    ("wintersburg",      "AZ"): "Maricopa County",
+    ("delta",            "PA"): "York County",
+    ("perry",            "OH"): "Lake County",
+    ("two rivers",       "WI"): "Manitowoc County",
+    ("welch",            "MN"): "Goodhue County",
+    ("cordova",          "IL"): "Rock Island County",
+    ("ontario",          "NY"): "Wayne County",
+    ("st. francisville", "LA"): "West Feliciana Parish",
+    ("jensen beach",     "FL"): "St. Lucie County",
+    ("seabrook",         "NH"): "Rockingham County",
+    ("soddy-daisy",      "TN"): "Hamilton County",
+    ("new hill",         "NC"): "Wake County",
+    ("bay city",         "TX"): "Matagorda County",
+    ("surry",            "VA"): "Surry County",
+    ("homestead",        "FL"): "Miami-Dade County",
+    ("jenkinsville",     "SC"): "Fairfield County",
+    ("waynesboro",       "GA"): "Burke County",
+    ("killona",          "LA"): "St. Charles Parish",
+    ("spring city",      "TN"): "Rhea County",
+    # Reference-city fallback used from the Address field when Location is None:
+    ("scottsboro",       "AL"): "Jackson County",
+}
+
+# Embedded FIPS data used as fallback when the FCC URL is inaccessible.
+# Source: US Census Bureau / FCC county FIPS reference (public domain).
+# Format: (state_abbrev_lower, county_name_lower) → 5-digit FIPS code.
+_EMBEDDED_FIPS = {
+    ("al", "limestone county"):        "01083",
+    ("al", "houston county"):          "01069",
+    ("al", "jackson county"):          "01071",
+    ("ar", "pope county"):             "05115",
+    ("az", "maricopa county"):         "04013",
+    ("ca", "san luis obispo county"):  "06079",
+    ("ct", "new london county"):       "09011",
+    ("fl", "miami-dade county"):       "12086",
+    ("fl", "st. lucie county"):        "12111",
+    ("ga", "appling county"):          "13001",
+    ("ga", "burke county"):            "13033",
+    ("il", "dewitt county"):           "17039",
+    ("il", "grundy county"):           "17063",
+    ("il", "lasalle county"):          "17099",
+    ("il", "ogle county"):             "17141",
+    ("il", "rock island county"):      "17161",
+    ("il", "will county"):             "17197",
+    ("ks", "coffey county"):           "20031",
+    ("la", "st. charles parish"):      "22089",
+    ("la", "west feliciana parish"):   "22125",
+    ("md", "calvert county"):          "24009",
+    ("mi", "berrien county"):          "26021",
+    ("mi", "monroe county"):           "26115",
+    ("mn", "goodhue county"):          "27049",
+    ("mn", "wright county"):           "27171",
+    ("mo", "callaway county"):         "29027",
+    ("ms", "claiborne county"):        "28021",
+    ("nc", "brunswick county"):        "37019",
+    ("nc", "mecklenburg county"):      "37119",
+    ("nc", "wake county"):             "37183",
+    ("ne", "nemaha county"):           "31117",
+    ("nh", "rockingham county"):       "33015",
+    ("nj", "salem county"):            "34033",
+    ("ny", "oswego county"):           "36075",
+    ("ny", "wayne county"):            "36117",
+    ("oh", "lake county"):             "39085",
+    ("oh", "ottawa county"):           "39123",
+    ("pa", "beaver county"):           "42007",
+    ("pa", "luzerne county"):          "42079",
+    ("pa", "montgomery county"):       "42091",
+    ("pa", "york county"):             "42133",
+    ("sc", "cherokee county"):         "45021",
+    ("sc", "darlington county"):       "45031",
+    ("sc", "fairfield county"):        "45039",
+    ("sc", "oconee county"):           "45073",
+    ("sc", "york county"):             "45091",
+    ("tn", "hamilton county"):         "47065",
+    ("tn", "rhea county"):             "47143",
+    ("tx", "matagorda county"):        "48321",
+    ("tx", "somervell county"):        "48423",
+    ("va", "louisa county"):           "51109",
+    ("va", "surry county"):            "51181",
+    ("wa", "benton county"):           "53005",
+    ("wi", "manitowoc county"):        "55071",
+}
+
+
+def _parse_fips_txt(text):
+    """Parse FCC FIPS text file into {(state_abbrev_lower, county_lower): fips}.
+
+    Strategy: find any line of the form  "County Name   XXXXX"  (the 5-digit
+    FIPS code appears at the end, separated by ≥2 spaces or a tab). The state
+    abbreviation is derived from the first two digits of the FIPS code via
+    _STATE_FIPS_TO_ABBREV, so no state-header tracking is needed.
+    Both the full name ("Pope County") and the bare name ("Pope") are stored.
+    County names in the FCC file use ASCII characters (A-Z, space, period,
+    hyphen, apostrophe) – Unicode names do not appear in this dataset.
+    """
+    lookup = {}
+    # Match "County Name   XXXXX" with 2+ spaces or tabs before the FIPS code.
+    pattern = re.compile(r'^([A-Za-z][A-Za-z\s.\-\']+?)(?:\s{2,}|\t+)(\d{5})\s*$')
+    for line in text.splitlines():
+        m = pattern.match(line.rstrip())
+        if not m:
+            continue
+        county_raw = m.group(1).strip()
+        fips_code  = m.group(2)
+        # Skip state-level entries (county portion "000")
+        if fips_code[2:] == "000":
+            continue
+        state_abbrev = _STATE_FIPS_TO_ABBREV.get(fips_code[:2])
+        if not state_abbrev:
+            continue
+        sa  = state_abbrev.lower()
+        key = county_raw.lower()
+        lookup[(sa, key)] = fips_code
+        # Also store without trailing geographic-type suffix for fuzzy matching.
+        # "census area" is matched as a complete phrase to avoid false matches
+        # on county names that merely end in "area".
+        stripped = re.sub(
+            r'\s+(county|parish|borough|municipality|census area)\s*$',
+            '', key, flags=re.IGNORECASE).strip()
+        if stripped != key:
+            lookup.setdefault((sa, stripped), fips_code)
+    return lookup
+
+
+def _load_fips_lookup():
+    """Download and parse the FCC FIPS file; fall back to embedded data."""
+    try:
+        req = urllib.request.Request(
+            FCC_FIPS_URL,
+            headers={"User-Agent": "NRC-PDF-parser/1.0 (python urllib)"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        # Try UTF-8 first; fall back to Latin-1 (the file is plain ASCII but
+        # some mirrors may add a BOM or use Windows-1252 for special characters).
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        table = _parse_fips_txt(text)
+        if len(table) >= _MIN_EXPECTED_FIPS_ENTRIES:
+            print(f"  FIPS table loaded from FCC ({len(table)} entries).")
+            return table
+        print("  FCC FIPS file parsed but too few entries; using embedded data.")
+    except Exception as exc:
+        print(f"  FCC FIPS URL unavailable ({exc}); using embedded data.")
+    return dict(_EMBEDDED_FIPS)
+
+
+def _county_from_location(location):
+    """Extract (county_name, state_abbrev) when the county is embedded in the
+    Location string.  Returns (None, state) when only city+state is present.
+
+    Handles patterns such as:
+      "Limestone County, AL"                      → county at start
+      "Hanford Reservation in Benton County, WA"  → "in X County"
+      "Morris (Grundy County), IL"                → county in parens
+      "Burlington (Coffey County), KS"            → county in parens
+    """
+    if not location:
+        return None, None
+    state_m = re.search(r',\s*([A-Z]{2})\s*$', location)
+    state   = state_m.group(1) if state_m else None
+
+    # "(Name County)" or "(Name Parish)" anywhere in string
+    m = re.search(r'\(([^)]+(?:County|Parish))\)', location, re.IGNORECASE)
+    if m and state:
+        return m.group(1).strip(), state
+
+    # "in X County, ST" or "in X Parish, ST"
+    m = re.search(
+        r'\bin\s+([A-Za-z][A-Za-z\s]+(?:County|Parish))\s*,',
+        location, re.IGNORECASE)
+    if m and state:
+        return m.group(1).strip(), state
+
+    # Starts with "X County, ST" or "X Parish, ST"
+    m = re.match(r'^([A-Za-z][A-Za-z\s]+(?:County|Parish))\s*,',
+                 location, re.IGNORECASE)
+    if m and state:
+        return m.group(1).strip(), state
+
+    return None, state
+
+
+def _lookup_city_county(location):
+    """Return (county_name, state_abbrev) by looking up city+state in
+    _CITY_COUNTY_MAP.  Returns (None, None) when not found."""
+    if not location:
+        return None, None
+    m = re.match(r'^([^,(]+),\s*([A-Z]{2})', location)
+    if not m:
+        return None, None
+    city  = m.group(1).strip().lower()
+    state = m.group(2)
+    county = _CITY_COUNTY_MAP.get((city, state))
+    return (county, state) if county else (None, None)
+
+
+def _fips_for(state_abbrev, county_name, fips_table):
+    """Return the 5-digit FIPS code string, or '' if not found."""
+    sa   = state_abbrev.lower()
+    base = county_name.lower().strip()
+    for key in (base,
+                re.sub(r'\s+(county|parish|borough|municipality|census area)\s*$',
+                       '', base, flags=re.IGNORECASE).strip()):
+        code = fips_table.get((sa, key))
+        if code:
+            return code
+    return ""
+
+
+def get_county_fips(location, addr, fips_table):
+    """Return (county_name, fips_code) for a plant record.
+
+    1. Try to extract county directly from Location (embedded patterns).
+    2. Fall back to city-based lookup in _CITY_COUNTY_MAP.
+    3. Last resort: extract the reference city from Address (e.g. Bellefonte
+       which has no Location but whose Address names a nearby town).
+    """
+    county, state = _county_from_location(location)
+
+    if not county:
+        county, state = _lookup_city_county(location)
+
+    if not county and addr:
+        # Address format: "(N miles DIR of City, ST)"
+        am = re.search(r'of\s+([A-Za-z][A-Za-z.\s]+),\s*([A-Z]{2})', addr)
+        if am:
+            ref_city  = am.group(1).strip().lower()
+            ref_state = am.group(2)
+            county    = _CITY_COUNTY_MAP.get((ref_city, ref_state))
+            state     = ref_state
+
+    if not county or not state:
+        return "", ""
+
+    return county, _fips_for(state, county, fips_table)
+
+
+def enrich_with_county_fips(records, fips_table):
+    """Add 'County' and 'FIPS Code' fields to every record dict in-place."""
+    for rec in records:
+        county, fips = get_county_fips(
+            rec.get("Location"), rec.get("Address"), fips_table)
+        rec["County"]    = county
+        rec["FIPS Code"] = fips
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Excel output
 # ─────────────────────────────────────────────────────────────────────────────
 
 OP_COLUMNS = [
     "Plant Name", "NRC Region", "Con Type", "Licensed MWt",
     "Licensee", "NSSS", "MWe",
-    "Location", "Address",
+    "Location", "Address", "County", "FIPS Code",
     "Architect Engineer", "Constructor", "License Number",
     "Docket Number",
     "CP Issued", "OL Issued", "Comm. Op",
@@ -435,7 +742,7 @@ OP_COLUMNS = [
 UC_COLUMNS = [
     "Plant Name", "NRC Region", "Con Type", "Licensed MWt",
     "Licensee", "NSSS", "MWe",
-    "Location", "Address",
+    "Location", "Address", "County", "FIPS Code",
     "Architect Engineer", "Constructor", "License Number",
     "Docket Number",
     "CP Issued", "COL Issued",
@@ -454,10 +761,11 @@ _BORDER   = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
 _CTR_COLS = {
     "NRC Region","Con Type","Licensed MWt","MWe",
     "CP Issued","OL Issued","Comm. Op","LR Issued","SR Issued","Exp. Date",
-    "COL Issued","Docket Number","License Number",
+    "COL Issued","Docket Number","License Number","FIPS Code",
 }
 _WIDTHS = {
     "Plant Name":40,"Licensee":40,"Location":22,"Address":34,
+    "County":22,"FIPS Code":10,
     "NRC Web Page":46,"NSSS":12,"Architect Engineer":18,
     "Constructor":14,"License Number":14,"Docket Number":14,
     "NRC Region":10,"Con Type":14,"Licensed MWt":13,"MWe":8,
@@ -503,6 +811,11 @@ if __name__ == "__main__":
 
     print(f"  Operating Reactors : {len(op_records)}")
     print(f"  Under Construction : {len(uc_records)}")
+
+    print("Loading FIPS lookup …")
+    fips_table = _load_fips_lookup()
+    enrich_with_county_fips(op_records, fips_table)
+    enrich_with_county_fips(uc_records, fips_table)
 
     wb = Workbook()
     write_sheet(wb.active, OP_COLUMNS, op_records, "Operating Reactors")
