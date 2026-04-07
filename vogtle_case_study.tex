@@ -1,0 +1,624 @@
+\documentclass[12pt,a4paper]{article}
+
+% Packages
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{setspace}
+\usepackage{parskip}
+
+% Colors
+\definecolor{nuclearblue}{RGB}{0,51,102}
+\definecolor{warningred}{RGB}{180,30,30}
+\definecolor{lightgray}{RGB}{240,240,240}
+
+% Header/Footer
+\setlength{\headheight}{15pt}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small Plant Vogtle Nuclear Power Plant --- Case Study}
+\lhead{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries\color{nuclearblue}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{nuclearblue}}{}{0em}{}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=nuclearblue,
+    urlcolor=nuclearblue,
+    pdftitle={Plant Vogtle Nuclear Power Plant: A Comprehensive Case Study},
+    pdfauthor={Research Analysis Report},
+}
+
+\begin{document}
+
+% ─────────────────────────── TITLE PAGE ────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\Huge\bfseries\color{nuclearblue}
+Plant Vogtle Nuclear Power Plant\\[0.5em]
+A Comprehensive Case Study}
+
+\vspace{1em}
+{\large\color{gray} America's Largest Nuclear Power Station ---\\
+Cost Overruns, Schedule Delays, and Lessons Learned}
+
+\vspace{2em}
+\rule{0.8\textwidth}{1pt}
+
+\vspace{2em}
+{\large\bfseries Based on the Following Key Studies:}
+
+\vspace{1em}
+\begin{mdframed}[backgroundcolor=lightgray, linecolor=nuclearblue, linewidth=1pt]
+\begin{enumerate}[leftmargin=1.5em, label=\textbf{\arabic*.}]
+    \item \textbf{``The Truth About Vogtle''} \\
+          \textit{Patty Durand, Kim Scott, Glenn Carroll} \\
+          Sponsored by: Cool Planet Solutions, Georgia WAND, Nuclear Watch South, \\
+          GCV Education Fund, Center for a Sustainable Coast, \\
+          Concerned Ratepayers of Georgia (2023--2024)
+
+    \item \textbf{``Ratepayer Robbery --- The True Cost of Plant Vogtle''} \\
+          \textit{Georgia Conservation Voters \& Environment Georgia} \\
+          December 2021
+
+    \item \textbf{``Southern Company's Troubled Vogtle Nuclear Project''} \\
+          \textit{David Schlissel, Director of Resource Planning Analysis} \\
+          Institute for Energy Economics and Financial Analysis (IEEFA), January 2022
+
+    \item \textbf{``Vogtle Units 3 \& 4: Twenty-Third Semi-Annual \\
+          Construction Monitoring Report''} \\
+          \textit{Georgia Power Company / Southern Nuclear Operating Company} \\
+          Docket No. 29849, August 2020
+
+    \item \textbf{``Final Report SJR 79: Kentucky Nuclear Energy Development''} \\
+          \textit{Kentucky Office of Energy Policy} \\
+          Report to Kentucky Legislative Research Commission, November 17, 2023
+
+    \item \textbf{``Commercial Nuclear Power Reactors --- Operating Reactors''} \\
+          \textit{U.S. Nuclear Regulatory Commission (NRC)} \\
+          Document No. ML25051A096 (Appendix A, NRC Reactor List)
+\end{enumerate}
+\end{mdframed}
+
+\vfill
+{\normalsize Research Analysis Report \\ April 2026}
+\end{titlepage}
+
+% ─────────────────────────── TABLE OF CONTENTS ─────────────────────────────
+\tableofcontents
+\newpage
+
+% ─────────────────────────── 1. INTRODUCTION ───────────────────────────────
+\section{Introduction}
+
+Georgia Power's Plant Vogtle, located in Burke County, Georgia near Augusta, is the
+largest nuclear power station in the United States. It is the only site in the country
+where new commercial nuclear reactors have been constructed in over 30 years,
+making it a landmark case study in both nuclear energy policy and large infrastructure
+project management.
+
+Plant Vogtle Units 1 and 2 came online in 1987 and 1989, respectively, having
+themselves experienced dramatic cost overruns---escalating from an initial estimate
+of \$660 million to a final cost of \$8.8 billion. Despite this precedent, Georgia Power
+Company, a wholly-owned subsidiary of the Southern Company, sought and received
+approval to construct two additional reactors (Units 3 and 4) employing Westinghouse's
+new AP1000 passive-safety reactor design.
+
+This case study synthesizes findings from six key reports and documents produced
+between 2020 and 2025 by a range of organizations---from advocacy groups and
+independent financial analysts to regulatory agencies and utility operators---to provide
+a comprehensive account of Plant Vogtle's development, cost, controversy, and
+implications for U.S. energy policy.
+
+% ─────────────────────────── 2. PLANT OVERVIEW ─────────────────────────────
+\section{Plant Vogtle: Overview and Background}
+
+\subsection{Location and Ownership}
+
+Plant Vogtle is situated on the Savannah River in Burke County, Georgia. The four
+owners of Vogtle Units 3 and 4 are:
+
+\begin{itemize}
+    \item \textbf{Georgia Power Company} (lead owner and agent) --- a subsidiary of Southern Company
+    \item \textbf{Oglethorpe Power Corporation}
+    \item \textbf{Municipal Electric Authority of Georgia (MEAG)}
+    \item \textbf{City of Dalton, Georgia}
+\end{itemize}
+
+Southern Nuclear Operating Company (SNC), acting as agent for Georgia Power,
+managed the construction and operations of Units 3 and 4.
+
+\subsection{The AP1000 Reactor Design}
+
+Units 3 and 4 use Westinghouse's AP1000 reactor design, a pressurized water reactor
+(PWR) with passive safety systems. When Georgia Power applied to the Georgia Public
+Service Commission (PSC) in 2008 for certification, it argued that the AP1000's modular
+construction techniques would enable the project to be completed faster and at lower
+cost than prior nuclear builds. This claim proved to be significantly overstated.
+
+\subsection{Historical Context: Units 1 and 2}
+
+The construction history of Vogtle Units 1 and 2 provided a clear warning sign
+that was ultimately ignored. Initial cost estimates for Units 1 and 2 stood at
+\$660 million; the final cost ballooned to \$8.8 billion by the time they came online
+in 1987 and 1989---an overrun exceeding 1,200\%. A U.S. Department of Energy
+study of 75 reactors built between 1966 and 1977 found average construction costs
+ran 207\% over initial estimates. The historical record provided ample evidence that
+new nuclear construction was prone to severe cost escalation.
+
+% ─────────────────────────── 3. CONSTRUCTION TIMELINE ─────────────────────
+\section{Construction Timeline and Schedule Delays}
+
+\subsection{Original Schedule}
+
+Georgia Power proposed the following commercial operation dates (CODs) when
+seeking certification in 2008:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Unit} & \textbf{Originally Estimated COD} & \textbf{Actual / Revised COD} \\
+\midrule
+Unit 3 & April 1, 2016 & July 2023 \\
+Unit 4 & April 1, 2017 & Late 2023 / Early 2024 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both units entered commercial operation more than \textbf{six years behind schedule}.
+
+\subsection{Key Construction Milestones and Setbacks}
+
+The Twenty-Third Semi-Annual Vogtle Construction Monitoring Report (August 2020,
+Docket No. 29849) covered the period January 1 to June 30, 2020 and reported:
+
+\begin{itemize}
+    \item Southern Nuclear Operating Company received no NRC Notices of Violation
+          during the reporting period and maintained a \textbf{green (favorable) status}
+          under the NRC's Construction Reactor Oversight Process (cROP).
+    \item The site sustained more than \textbf{34 million man-hours} without a lost-time
+          incident before an incident occurred in April 2020.
+    \item The \textbf{COVID-19 pandemic} caused significant workforce disruptions in
+          2020, including spikes in infections (over 800 workers tested positive), workforce
+          reductions, and increased costs and productivity challenges.
+    \item Despite pandemic-related setbacks, essential construction activities including
+          the Passive Containment Cooling Water Storage Tank (CB20) on the Unit 3
+          Shield Building continued.
+\end{itemize}
+
+\subsection{Westinghouse Bankruptcy (2017)}
+
+The most dramatic event in Vogtle's construction history was the March 2017
+bankruptcy filing by Westinghouse Electric Company, the contractor responsible for
+engineering, procurement, and construction. The bankruptcy was triggered in part by
+billions of dollars in losses on the Vogtle and V.C. Summer nuclear construction projects.
+
+In South Carolina, an identical AP1000 project (SCANA's V.C. Summer) was abandoned
+in July 2017 following nine consecutive rate increases. Investigations revealed that
+Westinghouse and utility executives had misrepresented project progress and costs,
+ultimately resulting in criminal charges and jail time for two SCANA executives.
+
+In Georgia, the PSC voted to continue the Vogtle project despite the Westinghouse
+bankruptcy, without imposing meaningful consumer protections against further overruns.
+
+% ─────────────────────────── 4. COST ANALYSIS ──────────────────────────────
+\section{Cost Analysis and Financial Impact}
+
+\subsection{Cost Escalation}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Year} & \textbf{Estimated Total Cost} & \textbf{Source} \\
+\midrule
+2009 (original approval) & \$14.0 billion & Georgia PSC Certification \\
+2017 (post-bankruptcy) & \$25+ billion & Georgia PSC Proceeding \\
+2021 & \$32+ billion & GCV Ratepayer Robbery Report \\
+2022 & \$30+ billion & IEEFA / Schlissel Report \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The total cost of Units 3 and 4 more than \textbf{doubled} from the original estimate
+of \$14 billion to above \$30--32 billion, making Plant Vogtle the most expensive
+power plant ever built on Earth at the time of its completion.
+
+\subsection{Cost Compared to Alternatives}
+
+The GCV ``Ratepayer Robbery'' report (December 2021) calculated that the cost per
+megawatt-hour of energy from Vogtle was \textbf{6 to 9 times higher} than comparable
+energy from renewable sources or natural gas that could have produced the same
+2,200 MW of generating capacity.
+
+\subsection{The Nuclear Construction Cost Recovery (NCCR) Tariff}
+
+Georgia was one of a small number of states with a ``Construction Work in Progress''
+(CWIP) law allowing utilities to collect construction costs from ratepayers \textit{before}
+a plant enters commercial operation. The NCCR tariff allowed Georgia Power to
+collect revenues from customers throughout the construction period, effectively
+shifting financial risk from shareholders to ratepayers. Between 2009 and 2021,
+Georgia Power collected multiple NCCR-based rate increases from its customers.
+
+\subsection{Return on Equity and Regulatory Capture}
+
+Critics, including the GCV report, argued that the Georgia PSC allowed Georgia Power
+one of the \textbf{highest returns on equity (ROE)} of any utility in the United States.
+This structure meant Georgia Power \textit{profited from construction delays}: longer
+construction timelines increased the capital base on which the utility earned its
+guaranteed rate of return. This created a perverse incentive that contributed to
+inadequate oversight of project management.
+
+% ─────────────────────────── 5. REGULATORY OVERSIGHT ──────────────────────
+\section{Regulatory Oversight and the Georgia PSC}
+
+\subsection{Role of the Georgia Public Service Commission}
+
+The Georgia Public Service Commission (PSC) is the body responsible for regulating
+Georgia Power as a monopoly utility and for protecting ratepayers. The PSC approved
+the Vogtle project in March 2009 and voted to continue construction after the
+Westinghouse bankruptcy in 2017.
+
+Critics across multiple reports characterized the PSC as suffering from
+``\textbf{regulatory capture}''---a phenomenon where a regulatory body acts in the
+interests of the industry it regulates rather than the public. Georgia Power itself
+referred to this relationship as ``constructive regulation.''
+
+\subsection{Key PSC Decisions}
+
+\begin{itemize}
+    \item \textbf{March 2009}: Approved Georgia Power's application to build Units 3 and 4.
+    \item \textbf{2017}: Voted to continue construction despite Westinghouse bankruptcy and
+          available cancellation option; declined to impose consumer protections.
+    \item \textbf{December 2023}: Final PSC vote following completion of the project, amid
+          ongoing protests from ratepayer advocacy groups.
+\end{itemize}
+
+\subsection{NRC Oversight}
+
+The U.S. Nuclear Regulatory Commission (NRC) monitored construction through its
+Construction Reactor Oversight Process (cROP). Per the Twenty-Third VCM Report
+(August 2020), Southern Nuclear Operating Company maintained a green (satisfactory)
+NRC performance indicator throughout 2020.
+
+The NRC document ML25051A096 lists Plant Vogtle among the United States' licensed
+commercial nuclear power reactors, confirming its operational status in the NRC's
+national reactor registry.
+
+% ─────────────────────────── 6. STUDY-BY-STUDY ANALYSIS ────────────────────
+\section{Study-by-Study Analysis}
+
+\subsection{Study 1: ``The Truth About Vogtle''}
+
+\textbf{Authors:} Patty Durand (Cool Planet Solutions), Kim Scott (Georgia WAND),
+Glenn Carroll (Nuclear Watch South)\\
+\textbf{Sponsors:} Center for a Sustainable Coast; Concerned Ratepayers of Georgia;
+Cool Planet Solutions; GCV Education Fund; Georgia WAND; Nuclear Watch South
+
+This report, the most comprehensive advocacy document in the repository, presents
+a critical examination of the entire Vogtle project from initial approval through
+completion. Key findings include:
+
+\begin{itemize}
+    \item Vogtle 3 and 4 are the \textbf{only new nuclear reactors built in the U.S. in
+          over 30 years}.
+    \item Cost overruns began immediately after construction started in 2009.
+    \item The Westinghouse bankruptcy in March 2017 created a clear decision point
+          that the Georgia PSC failed to use to protect ratepayers.
+    \item The report systematically debunks seven common myths about nuclear energy:
+    \begin{enumerate}
+        \item Nuclear energy is clean
+        \item Nuclear energy is safe
+        \item Nuclear waste is ``no big deal''
+        \item Small Modular Reactors (SMRs) are different
+        \item Nuclear is required to back up renewables
+        \item Nuclear is required to meet future growth
+        \item Nuclear is needed to combat climate change
+    \end{enumerate}
+    \item The report documents \textbf{scandals and litigation} surrounding the project,
+          including parallels with the V.C. Summer SCANA scandal in South Carolina
+          where executives faced criminal charges.
+    \item The U.S. South is described as the ``nuclear hub of the United States,''
+          hosting over three dozen operational reactors, weapons manufacturing complexes,
+          and nuclear fuel factories.
+\end{itemize}
+
+\subsection{Study 2: ``Ratepayer Robbery --- The True Cost of Plant Vogtle''}
+
+\textbf{Authors:} Georgia Conservation Voters \& Environment Georgia\\
+\textbf{Date:} December 2021
+
+This report frames the Vogtle project as a financial harm imposed on Georgia
+ratepayers. Key findings include:
+
+\begin{itemize}
+    \item Plant Vogtle is described as ``\textbf{the most expensive power plant ever
+          built on Earth},'' with costs exceeding \$32 billion for 2,200 MW of capacity.
+    \item The cost-per-megawatt-hour from Vogtle is 6--9 times higher than
+          renewable alternatives.
+    \item Georgia Power's system outages \textbf{consistently exceeded U.S. averages}
+          for investor-owned utilities, undermining the utility's claim of ``superior service.''
+    \item The report details the NCCR tariff mechanism and documents how Georgia
+          Power collected rate increases from customers during construction.
+    \item The ``Parental Guarantee'' from Southern Company is analyzed, showing
+          the limits of shareholder protection for ratepayers.
+    \item The report argues that the PSC's 2017 decision to continue construction
+          was the \textbf{costliest regulatory failure} in Georgia history.
+    \item It concludes that cancellation and replacement with renewables in 2017
+          would have been cheaper for customers.
+\end{itemize}
+
+\subsection{Study 3: ``Southern Company's Troubled Vogtle Nuclear Project''}
+
+\textbf{Author:} David Schlissel, Director of Resource Planning Analysis, IEEFA\\
+\textbf{Date:} January 2022
+
+This report, produced by the Institute for Energy Economics and Financial Analysis
+(IEEFA), provides an independent financial and engineering assessment. Key findings:
+
+\begin{itemize}
+    \item Total cost had climbed above \$30 billion by January 2022, with completion
+          still expected to be \textbf{more than six years behind the original schedule}.
+    \item Georgia Power's 2008 application claimed modular AP1000 construction would
+          reduce both cost and schedule---a claim that proved false.
+    \item The report draws a direct line between the failure of Vogtle 1 \& 2 (which
+          cost \$8.8 billion versus an estimate of \$660 million) and the failure of
+          Units 3 \& 4, arguing these outcomes were \textbf{predictable} given nuclear
+          construction history.
+    \item A DOE study of 75 reactors found average cost overruns of 207\%---evidence
+          that was available to the PSC before it approved Vogtle 3 \& 4.
+    \item Commercial operations for Unit 3 were projected at 2022 and Unit 4 at 2023,
+          though actual completion slipped further.
+\end{itemize}
+
+\subsection{Study 4: ``Vogtle Units 3 \& 4: Twenty-Third Semi-Annual Construction Monitoring Report''}
+
+\textbf{Issuer:} Georgia Power Company / Southern Nuclear Operating Company\\
+\textbf{Date:} August 2020 (covering January--June 2020)\\
+\textbf{Docket:} No. 29849
+
+This is an official regulatory filing by the utility itself, submitted to the
+Georgia PSC. Key contents:
+
+\begin{itemize}
+    \item The report describes the overall safety and quality management culture on site,
+          including a commitment to ``\textbf{safety first}.''
+    \item As of June 2020, SNC maintained green status under the NRC's cROP and
+          had received no Notices of Violation.
+    \item COVID-19 significantly impacted the project: over 800 workers tested positive,
+          and workforce reductions in April 2020 caused productivity losses, cost increases,
+          and milestone delays.
+    \item The report shows the Passive Containment Cooling Water Storage Tank (CB20)
+          atop the Unit 3 Shield Building being completed---a visible symbol of construction
+          progress during a turbulent period.
+    \item This report represents the utility's perspective, emphasizing compliance and
+          safety culture, in contrast to the critical perspective of the advocacy reports.
+\end{itemize}
+
+\subsection{Study 5: ``Final Report SJR 79 --- Kentucky Nuclear Energy Development''}
+
+\textbf{Issuer:} Kentucky Office of Energy Policy\\
+\textbf{Date:} November 17, 2023\\
+\textbf{Submitted to:} Kentucky Legislative Research Commission
+
+While primarily focused on Kentucky's nuclear energy future, this report provides
+important national context drawn in part from the Vogtle experience:
+
+\begin{itemize}
+    \item Kentucky currently has \textbf{no operational commercial nuclear reactors},
+          having relied on coal and natural gas historically.
+    \item The report analyzes the \textbf{value proposition of nuclear energy} in terms
+          of reliability, baseload power, and decarbonization.
+    \item It examines barriers to nuclear development in Kentucky, including:
+    \begin{itemize}
+        \item High capital costs and financing risk (informed by Vogtle's experience)
+        \item Workforce and supply chain gaps
+        \item Regulatory and permitting uncertainty
+        \item Public perception challenges
+    \end{itemize}
+    \item The report recommends creating a \textbf{Kentucky Nuclear Energy Development
+          Authority} with near-term goals (0--3 years) and intermediate-term goals (3+ years).
+    \item It identifies Small Modular Reactors (SMRs) as a ``gated opportunity''
+          for future deployment, contingent on the success of national SMR demonstration
+          projects.
+    \item The Vogtle project's lessons---particularly the dangers of cost overruns with
+          large light-water reactors---are implicitly used to justify a cautious, phased
+          approach to nuclear development in Kentucky.
+\end{itemize}
+
+\subsection{Study 6: NRC Document ML25051A096 --- ``Commercial Nuclear Power Reactors: Operating Reactors''}
+
+\textbf{Issuer:} U.S. Nuclear Regulatory Commission (NRC)\\
+\textbf{Document:} Appendix A, Operating Reactors List
+
+This NRC document places Plant Vogtle in the national context of licensed and
+operating commercial nuclear power reactors in the United States. Key information:
+
+\begin{itemize}
+    \item The document lists all NRC-licensed operating reactors by plant name,
+          licensee, location, docket number, reactor type (e.g., PWR-DRYAMB, BWR),
+          NSSS supplier, architect-engineer, constructor, net MWe capacity, and NRC Region.
+    \item Plant Vogtle appears as a licensed facility in NRC Region II (Southeast).
+    \item The listing confirms that Plant Vogtle Units 3 and 4 are operational, using
+          the AP1000 (PWR) design supplied by Westinghouse.
+    \item The document contextualizes Vogtle among a national fleet that includes:
+          Arkansas Nuclear One (Entergy), Beaver Valley Power Station (Energy Harbor/Vistra),
+          Braidwood Station (Constellation), and dozens of others.
+    \item The NRC's role as licensing authority---distinct from the state PSC's economic
+          regulation---is clarified by this document.
+\end{itemize}
+
+% ─────────────────────────── 7. KEY THEMES ─────────────────────────────────
+\section{Cross-Cutting Themes and Lessons Learned}
+
+\subsection{Theme 1: The Persistent Pattern of Nuclear Cost Overruns}
+
+Every independent study reviewed here confirms that large-scale nuclear construction
+in the United States has been associated with dramatic cost overruns. From Vogtle
+Units 1 \& 2 in the 1980s to Units 3 \& 4 in the 2010s--2020s, and across other
+projects documented by the DOE and NRC, cost escalation appears to be a structural
+feature of nuclear construction rather than an anomaly.
+
+\subsection{Theme 2: Regulatory Capture and Ratepayer Risk}
+
+Multiple reports identify a pattern of regulatory capture at the Georgia PSC. The
+NCCR tariff mechanism enabled Georgia Power to pass construction costs to ratepayers
+in advance, removing the market discipline that would otherwise incentivize cost
+control. The PSC's failure to impose consumer protections following the Westinghouse
+bankruptcy in 2017 is highlighted by all three independent studies as a critical
+governance failure.
+
+\subsection{Theme 3: The V.C. Summer Comparison}
+
+The abandoned V.C. Summer project in South Carolina serves as a counterfactual
+throughout the advocacy reports. Had Georgia followed South Carolina's decision to
+cancel the project in 2017, ratepayers would have avoided billions in additional costs.
+The criminal accountability for SCANA executives in South Carolina---absent in
+Georgia---is cited as evidence of differential regulatory enforcement.
+
+\subsection{Theme 4: Implications for Future Nuclear Development}
+
+The Kentucky SJR 79 report illustrates how Vogtle's troubled history is shaping
+nuclear policy discussions in other states. The report's cautious framing of SMRs
+as a ``gated opportunity'' reflects lessons drawn from Vogtle: the importance of
+proven technology, phased investment, and independent financial oversight before
+committing to large capital expenditures.
+
+\subsection{Theme 5: COVID-19 and Infrastructure Resilience}
+
+The VCM Report from August 2020 documents how the COVID-19 pandemic exposed the
+vulnerability of large construction projects to workforce disruptions. The virus
+caused schedule delays and cost increases at Vogtle, adding to an already troubled
+project. This experience points to the need for resilient workforce planning and
+contingency budgets in large infrastructure projects.
+
+% ─────────────────────────── 8. DATA SUMMARY TABLE ─────────────────────────
+\section{Key Data Summary}
+
+\begin{center}
+\begin{longtable}{p{4cm} p{9cm}}
+\toprule
+\textbf{Parameter} & \textbf{Data} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Parameter} & \textbf{Data} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Location & Burke County, Georgia, USA (near Augusta, on the Savannah River) \\[4pt]
+Plant Type & Nuclear Power Plant (Pressurized Water Reactor --- AP1000) \\[4pt]
+Units 3 \& 4 Capacity & 2,200 MW (combined) \\[4pt]
+Owner (Lead) & Georgia Power Company (subsidiary of Southern Company) \\[4pt]
+Other Owners & Oglethorpe Power, MEAG, City of Dalton \\[4pt]
+Reactor Supplier & Westinghouse Electric Company (AP1000 design) \\[4pt]
+NRC Region & Region II (Southeast) \\[4pt]
+Original Cost Estimate & \$14 billion (2009 PSC application) \\[4pt]
+Final Cost Estimate & \$32+ billion \\[4pt]
+Cost Overrun & $\sim$130\% above original estimate \\[4pt]
+Original COD (Unit 3) & April 1, 2016 \\[4pt]
+Actual COD (Unit 3) & July 2023 \\[4pt]
+Schedule Delay & 6+ years behind schedule \\[4pt]
+Westinghouse Bankruptcy & March 2017 \\[4pt]
+NRC cROP Status (2020) & Green (Satisfactory) \\[4pt]
+Man-Hours without LTI & 34+ million (as of April 2020) \\[4pt]
+COVID-19 Impact & 800+ positive tests on site; workforce reduction; cost increases \\[4pt]
+Cost vs. Renewables & 6--9$\times$ higher per MWh than renewable alternatives \\[4pt]
+\end{longtable}
+\end{center}
+
+% ─────────────────────────── 9. CONCLUSION ─────────────────────────────────
+\section{Conclusion}
+
+Plant Vogtle Units 3 and 4 represent the most significant nuclear energy construction
+project in the United States in a generation. As the only new commercial nuclear
+reactors built in the country in over 30 years, they have served as both an ambition
+and a cautionary tale.
+
+The six studies reviewed in this case study converge on several conclusions:
+
+\begin{enumerate}
+    \item \textbf{Cost overruns were predictable.} Historical data from Vogtle 1 \& 2
+          and the broader U.S. nuclear fleet clearly indicated that the original \$14 billion
+          estimate was unrealistic. The project ultimately cost more than double that amount.
+
+    \item \textbf{Regulatory oversight failed ratepayers.} The Georgia PSC, functioning
+          under a model critics describe as regulatory capture, repeatedly made decisions
+          that protected utility profits over consumer interests---most critically in 2017
+          when the Westinghouse bankruptcy created a legitimate off-ramp.
+
+    \item \textbf{The financial burden fell on ratepayers.} Through the NCCR tariff and
+          repeated rate increases, Georgia electricity customers funded the project during
+          construction and will continue to pay elevated rates for decades.
+
+    \item \textbf{Alternatives existed and were not chosen.} Multiple analyses demonstrate
+          that renewable energy and natural gas alternatives could have provided equivalent
+          capacity at a fraction of the cost, especially given the dramatic price reductions
+          in solar and wind between 2009 and 2023.
+
+    \item \textbf{Vogtle is now shaping national nuclear policy.} The project's completion,
+          despite its cost and schedule failures, has been cited by nuclear advocates as
+          proof of concept for AP1000 technology. Other states such as Kentucky are
+          examining nuclear options while attempting to learn from Vogtle's mistakes
+          through phased approaches and SMR technology.
+\end{enumerate}
+
+Plant Vogtle stands as a complex legacy: technically completed but economically
+troubled; a proof of advanced reactor technology but also evidence of deep systemic
+failures in utility regulation, cost estimation, and infrastructure governance. Its
+lessons will shape U.S. energy policy for decades to come.
+
+% ─────────────────────────── REFERENCES ────────────────────────────────────
+\section*{References}
+\addcontentsline{toc}{section}{References}
+
+\begin{enumerate}[leftmargin=1.5em, label={[\arabic*]}]
+
+    \item Durand, P., Scott, K., \& Carroll, G. (n.d.). \textit{The Truth About Vogtle}.
+          Sponsored by Cool Planet Solutions, Georgia WAND, Nuclear Watch South,
+          GCV Education Fund, Center for a Sustainable Coast, Concerned Ratepayers
+          of Georgia.
+
+    \item Georgia Conservation Voters \& Environment Georgia. (December 2021).
+          \textit{Ratepayer Robbery --- The True Cost of Plant Vogtle}.
+
+    \item Schlissel, D. (January 2022). \textit{Southern Company's Troubled Vogtle
+          Nuclear Project: Units 3 and 4 Now Expected to Cost More Than \$30 Billion
+          and Are at Least Six Years Behind Schedule}. Institute for Energy Economics
+          and Financial Analysis (IEEFA).
+
+    \item Georgia Power Company / Southern Nuclear Operating Company. (August 2020).
+          \textit{Vogtle Units 3 \& 4: Twenty-Third Semi-Annual Construction Monitoring
+          Report}. Docket No. 29849. Submitted to Georgia Public Service Commission.
+
+    \item Kentucky Office of Energy Policy. (November 17, 2023). \textit{Final Report
+          SJR 79: Report to the Kentucky Legislative Research Commission Pursuant to
+          2023RS SJR 79}.
+
+    \item U.S. Nuclear Regulatory Commission. (2025). \textit{Commercial Nuclear Power
+          Reactors: Operating Reactors, Appendix A}. NRC Document ML25051A096.
+
+    \item U.S. Energy Information Administration. (January 1, 1986). \textit{An Analysis
+          of Nuclear Power Plant Construction Costs}. Technical Report DOE/EIA-0485.
+
+    \item Georgia Public Service Commission. (August 1, 2008). \textit{Georgia Power
+          Company Application for the Certification of Vogtle Generating Units 3 and 4
+          and Upgraded Integrated Resource Plan}.
+
+\end{enumerate}
+
+\end{document}
