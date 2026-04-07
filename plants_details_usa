@@ -1,143 +1,866 @@
 python:
+
+"""
+US Power Plants – EIA Data Fetcher  (Stata-compatible Python script)
+=====================================================================
+Designed to be run interactively inside Stata via:
+
+    python script "eia_plants_stata.py"
+
+  or block-by-block:
+
+    python:
+      from eia_plants_stata import *
+      fetch_and_clean()
+    end
+
+All outputs (CSV tables + PNG charts) are written to the same folder
+as this script.  The cleaned generator DataFrame is also pushed into
+Stata as a Stata dataset via sfi (Stata Function Interface) so you can
+immediately run Stata commands on it.
+
+SETUP
+-----
+1.  Install required packages once in Stata:
+        python: import subprocess
+        python: subprocess.run(["pip","install","requests","pandas",
+                               "matplotlib","seaborn","plotly"], check=True)
+
+2.  Set your EIA API key (register free at https://www.eia.gov/opendata/):
+        python: import os; os.environ["EIA_API_KEY"] = "YOUR_REAL_KEY"
+
+3.  Run the full pipeline:
+        python script "eia_plants_stata.py"
+
+    Or run individual steps:
+        python: fetch_and_clean()
+        python: build_summaries()
+        python: make_charts()
+        python: push_to_stata()    <- loads data into Stata memory
+
+VALID API FIELDS (as of 2024 monthly endpoint)
+-----------------------------------------------
+  data[]  : nameplate-capacity-mw, net-summer-capacity-mw,
+            net-winter-capacity-mw, operating-year-month,
+            planned-retirement-year-month, county, longitude, latitude
+  facets  : status (OP=Operating, SB=Standby, OA=Out of service, RE=Retired)
+  frequency: monthly  (annual is NOT supported by this endpoint)
+"""
+
+# ── Standard-library & third-party imports ────────────────────────────────────
+import os
+import sys
+import time
+import traceback
+
 import requests
-import json
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")          # must be non-interactive for Stata
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import seaborn as sns
 
-API_KEY = "YOUR_API_KEY"
+# Plotly is optional – skip gracefully if not installed
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
+    print("[warn] plotly not installed – interactive HTML charts will be skipped.")
 
-# Discover metadata: valid fields, facets, frequencies for this endpoint
-r = requests.get(
-    "https://api.eia.gov/v2/electricity/operating-generator-capacity/",
-    params={"api_key": API_KEY}
-)
-print(json.dumps(r.json(), indent=2))
+# sfi is the Stata–Python bridge; only available when running inside Stata
+try:
+    import sfi
+    IN_STATA = True
+except ImportError:
+    IN_STATA = False
 
-end
+# ── Configuration ─────────────────────────────────────────────────────────────
 
-python:
-import requests
-import json
-import pandas as pd
+EIA_API_KEY  = os.environ.get("EIA_API_KEY", "YOUR_API_KEY")
+EIA_BASE_URL = ("https://api.eia.gov/v2/electricity/"
+                "operating-generator-capacity/data/")
 
-API_KEY = "YOUR_API_KEY"
-EIA_URL = "https://api.eia.gov/v2/electricity/operating-generator-capacity/data/"
+# Output folder: same directory as this script when run via `python script`;
+# falls back to cwd when run interactively.
+try:
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _SCRIPT_DIR = os.getcwd()
 
-header_params = {
-    "frequency": "annual",
-    "data": [
-        "summer-capacity",        # Capacity in MW
-        "nameplate-capacity-mw",  # Nameplate capacity
-        "operating-year",         # Establishment / operating year
-        "county",                 # County name
-        "latitude",
-        "longitude"
-    ],
-    "facets": {
-        "energy_source_code": ["NUC"]  # Nuclear only
-    },
-    "sort": [{"column": "operating-year", "direction": "asc"}],
-    "offset": 0,
-    "length": 5000
+OUTPUT_DIR = os.path.join(_SCRIPT_DIR, "eia_output")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ── Lookup tables ─────────────────────────────────────────────────────────────
+
+FUEL_LABELS = {
+    "NUC": "Nuclear",        "NG":  "Natural Gas",   "OG":  "Other Gas",
+    "BIT": "Coal",           "SUB": "Coal",          "LIG": "Coal",
+    "COL": "Coal",           "WC":  "Coal",          "PC":  "Coal",
+    "WAT": "Hydro",          "WND": "Wind",
+    "SUN": "Solar",          "DPV": "Solar",
+    "GEO": "Geothermal",
+    "DFO": "Petroleum",      "RFO": "Petroleum",
+    "MWH": "Storage",
+    "WDS": "Other",          "MSW": "Other",         "LFG": "Other",
+    "AB":  "Other",          "OBS": "Other",         "OTH": "Other",
+    "H2":  "Other",          "PUR": "Other",         "SGC": "Coal",
 }
 
-response = requests.get(
-    EIA_URL,
-    params={"api_key": API_KEY},
-    headers={"X-Params": json.dumps(header_params)}
-)
+FUEL_COLORS = {
+    "Nuclear":     "#e63946",
+    "Natural Gas": "#457b9d",
+    "Coal":        "#6b4226",
+    "Hydro":       "#1d3557",
+    "Wind":        "#2a9d8f",
+    "Solar":       "#e9c46a",
+    "Geothermal":  "#f4a261",
+    "Petroleum":   "#264653",
+    "Storage":     "#8ecae6",
+    "Other":       "#adb5bd",
+}
 
-result = response.json()
+def _fuel_group(code: str) -> str:
+    return FUEL_LABELS.get(str(code).upper(), "Other")
 
-if "response" not in result:
-    print("ERROR:", result)
-else:
-    df = pd.DataFrame(result["response"]["data"])
-    print(f"Total records: {result['response']['total']}")
-    print(df.columns.tolist())   # <-- Print all returned columns
-    print(df.head())
-end
+# ── Module-level state (populated by fetch_and_clean / build_summaries) ───────
+DF          = None   # cleaned generator DataFrame
+BY_STATE    = None   # summary by state
+BY_FUEL     = None   # summary by fuel group
+BY_TECH     = None   # summary by technology
+TREND       = None   # capacity additions by year × fuel
 
-python:
-import requests
-import json
-import pandas as pd
+# ═════════════════════════════════════════════════════════════════════════════
+# 1.  DATA FETCH
+# ═════════════════════════════════════════════════════════════════════════════
 
-API_KEY = "YOUR_API_KEY"
+def _check_key(api_key: str) -> str:
+    api_key = api_key.strip()
+    if not api_key or api_key == "YOUR_API_KEY":
+        raise ValueError(
+            "EIA API key not set.\n"
+            "Run:  import os; os.environ['EIA_API_KEY'] = 'your_real_key'\n"
+            "then call fetch_and_clean() again."
+        )
+    return api_key
 
-# EIA-860 annual generator data — includes FIPS, county, plant metadata
-EIA_860_URL = "https://api.eia.gov/v2/electricity/operating-generator-capacity/data/"
 
-header_params = {
-    "frequency": "annual",
-    "data": [
+def fetch_raw(
+    api_key:       str            = EIA_API_KEY,
+    status_filter: list[str]      = None,
+    page_size:     int            = 5000,
+) -> pd.DataFrame:
+    """
+    Download generator-capacity records from EIA API v2.
+
+    Parameters
+    ----------
+    api_key       : Your EIA v2 API key.
+    status_filter : List of status codes, e.g. ['OP'] for operating only.
+                    None = all statuses.
+    page_size     : Records per request (max 5 000).
+
+    Returns
+    -------
+    pd.DataFrame  : Raw records, one row per generator-month.
+    """
+    api_key = _check_key(api_key)
+
+    # Only these column names are accepted by the monthly endpoint
+    data_cols = [
         "nameplate-capacity-mw",
-        "operating-year",     # Year plant became operational (establishment year)
-        "county",             # County name
-        "stateid",            # State abbreviation
-        "latitude",
+        "net-summer-capacity-mw",
+        "net-winter-capacity-mw",
+        "operating-year-month",
+        "planned-retirement-year-month",
+        "county",
         "longitude",
-        "status"              # Operating status (OP = operating)
-    ],
-    "facets": {
-        "energy_source_code": ["NUC"],
-        "status": ["OP"]       # Only currently operating plants
-    },
-    "sort": [{"column": "period", "direction": "desc"}],
-    "offset": 0,
-    "length": 5000
-}
+        "latitude",
+    ]
 
-response = requests.get(
-    EIA_860_URL,
-    params={"api_key": API_KEY},
-    headers={"X-Params": json.dumps(header_params)}
-)
+    all_records = []
+    offset      = 0
 
-result = response.json()
+    while True:
+        params: list[tuple] = [
+            ("api_key",            api_key),
+            ("frequency",          "monthly"),   # annual is NOT valid here
+            ("offset",             str(offset)),
+            ("length",             str(page_size)),
+            ("sort[0][column]",    "period"),
+            ("sort[0][direction]", "desc"),
+        ]
+        for i, col in enumerate(data_cols):
+            params.append((f"data[{i}]", col))
+        if status_filter:
+            for i, s in enumerate(status_filter):
+                params.append((f"facets[status][{i}]", s))
 
-if "response" not in result:
-    print("ERROR:", result)
-else:
-    df_plants = pd.DataFrame(result["response"]["data"])
+        resp = requests.get(EIA_BASE_URL, params=params, timeout=60)
 
-    # Keep most relevant columns (rename for clarity)
-    print(df_plants.columns.tolist())  # first inspect what came back
-end
+        if not resp.ok:
+            msg = resp.text[:600]
+            print(f"  [error] HTTP {resp.status_code}: {msg}")
+            resp.raise_for_status()
 
-python:
-import requests
-import json
-import pandas as pd
+        payload = resp.json()
+        if "response" not in payload:
+            raise RuntimeError(f"Unexpected API payload: {payload}")
 
-API_KEY = "YOUR_EIA_KEY"
-CENSUS_KEY = "YOUR_CENSUS_KEY"
+        batch  = payload["response"]["data"]
+        total  = int(payload["response"]["total"])
+        all_records.extend(batch)
 
-# --- Get EIA plant data ---
-eia_df = pd.DataFrame(...)  # your df_plants from Step 3
+        print(f"  Fetched {len(all_records):>8,} / {total:,}  (offset={offset})")
 
-# --- Get FIPS crosswalk from Census ---
-census_url = "https://api.census.gov/data/2020/acs/acs5"
-census_resp = requests.get(census_url, params={
-    "get": "NAME,GEO_ID",
-    "for": "county:*",
-    "key": CENSUS_KEY
-})
-census_data = census_resp.json()
-df_fips = pd.DataFrame(census_data[1:], columns=census_data[0])
+        if len(all_records) >= total:
+            break
+        offset += page_size
+        time.sleep(0.25)       # stay within EIA rate limits
 
-# Extract state FIPS and county FIPS from GEO_ID (format: 0500000US{state}{county})
-df_fips["state_fips"] = df_fips["GEO_ID"].str[-5:-3]
-df_fips["county_fips"] = df_fips["GEO_ID"].str[-3:]
-df_fips["full_fips"] = df_fips["GEO_ID"].str[-5:]
+    return pd.DataFrame(all_records)
 
-# Merge EIA plant data with FIPS on state + county name
-df_merged = eia_df.merge(
-    df_fips[["NAME", "full_fips", "state", "county"]],
-    left_on=["stateid", "county"],
-    right_on=["state", "county"],
-    how="left"
-)
 
-print(df_merged[["plantid", "plant_name", "stateid", "county", "full_fips",
-                  "operating-year", "nameplate-capacity-mw"]].head(10))
+# ═════════════════════════════════════════════════════════════════════════════
+# 2.  CLEANING
+# ═════════════════════════════════════════════════════════════════════════════
+
+def clean(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardise types, derive helper columns, deduplicate to one row
+    per generator (most-recent monthly snapshot).
+    """
+    df = df_raw.copy()
+
+    # ── Numeric capacity columns
+    for col in ["nameplate-capacity-mw", "net-summer-capacity-mw",
+                "net-winter-capacity-mw", "latitude", "longitude"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # ── Period: "YYYY-MM" → datetime; keep integer year for charts
+    if "period" in df.columns:
+        df["period"] = pd.to_datetime(df["period"], format="%Y-%m", errors="coerce")
+        df["period_year"] = df["period"].dt.year
+
+    # ── Operating year from "operating-year-month" ("YYYY-MM")
+    if "operating-year-month" in df.columns:
+        df["operating-year"] = pd.to_datetime(
+            df["operating-year-month"], format="%Y-%m", errors="coerce"
+        ).dt.year.astype("Int64")
+
+    # ── Planned retirement year
+    if "planned-retirement-year-month" in df.columns:
+        df["retirement-year"] = pd.to_datetime(
+            df["planned-retirement-year-month"], format="%Y-%m", errors="coerce"
+        ).dt.year.astype("Int64")
+
+    # ── Fuel source code  (the API returns it as part of the row index)
+    # Column may be named differently across API versions
+    for candidate in ["energysourcecode", "energy-source-code",
+                      "energy_source_code", "energySourceCode"]:
+        if candidate in df.columns:
+            df.rename(columns={candidate: "energy_source_code"}, inplace=True)
+            break
+
+    if "energy_source_code" not in df.columns:
+        # Last resort: sometimes embedded in entityid  (e.g. "12345-NG-1")
+        if "entityid" in df.columns:
+            df["energy_source_code"] = (
+                df["entityid"].astype(str).str.split("-").str[-1]
+            )
+        else:
+            df["energy_source_code"] = "OTH"
+
+    df["energy_source_code"] = df["energy_source_code"].str.upper().str.strip()
+    df["fuel_label"]          = df["energy_source_code"].map(FUEL_LABELS).fillna("Other")
+    df["fuel_group"]          = df["energy_source_code"].apply(_fuel_group)
+
+    # ── Deduplicate: one row per plant×generator, most-recent month
+    id_cols = [c for c in ["plantid", "generatorid"] if c in df.columns]
+    if id_cols and "period" in df.columns:
+        df = (df.sort_values("period", ascending=False)
+                .drop_duplicates(subset=id_cols, keep="first"))
+
+    return df.reset_index(drop=True)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 3.  SUMMARY TABLES
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _state_summary(df: pd.DataFrame) -> pd.DataFrame:
+    cap_col = "nameplate-capacity-mw"
+    grp = (
+        df.groupby("stateid")
+        .agg(generators=(cap_col, "count"), capacity_mw=(cap_col, "sum"))
+        .reset_index()
+        .rename(columns={"stateid": "state"})
+        .sort_values("capacity_mw", ascending=False)
+    )
+    grp["capacity_gw"] = (grp["capacity_mw"] / 1_000).round(2)
+    grp["share_pct"]   = (grp["capacity_mw"] / grp["capacity_mw"].sum() * 100).round(2)
+    return grp
+
+
+def _fuel_summary(df: pd.DataFrame) -> pd.DataFrame:
+    cap_col = "nameplate-capacity-mw"
+    grp = (
+        df.groupby("fuel_group")
+        .agg(generators=(cap_col, "count"), capacity_mw=(cap_col, "sum"))
+        .reset_index()
+        .sort_values("capacity_mw", ascending=False)
+    )
+    grp["capacity_gw"] = (grp["capacity_mw"] / 1_000).round(2)
+    grp["share_pct"]   = (grp["capacity_mw"] / grp["capacity_mw"].sum() * 100).round(2)
+    return grp
+
+
+def _tech_summary(df: pd.DataFrame) -> pd.DataFrame:
+    cap_col  = "nameplate-capacity-mw"
+    tech_col = "technology-desc" if "technology-desc" in df.columns else "fuel_label"
+    grp = (
+        df.groupby(tech_col)
+        .agg(generators=(cap_col, "count"), capacity_mw=(cap_col, "sum"))
+        .reset_index()
+        .sort_values("capacity_mw", ascending=False)
+    )
+    grp["capacity_gw"] = (grp["capacity_mw"] / 1_000).round(2)
+    grp["share_pct"]   = (grp["capacity_mw"] / grp["capacity_mw"].sum() * 100).round(2)
+    return grp
+
+
+def _capacity_trend(df: pd.DataFrame) -> pd.DataFrame:
+    col = "operating-year"
+    if col not in df.columns or df[col].isna().all():
+        print(f"  [warn] '{col}' unavailable – trend chart skipped.")
+        return pd.DataFrame()
+    trend = (
+        df.dropna(subset=[col])
+        .groupby([col, "fuel_group"])["nameplate-capacity-mw"]
+        .sum()
+        .reset_index()
+        .rename(columns={col: "year", "nameplate-capacity-mw": "capacity_mw"})
+    )
+    trend["capacity_gw"] = trend["capacity_mw"] / 1_000
+    trend["year"]        = trend["year"].astype(int)
+    return trend.sort_values(["year", "fuel_group"])
+
+
+def _print_summaries(by_state, by_fuel, by_tech):
+    div = "=" * 72
+    print(f"\n{div}\n  CAPACITY BY STATE (Top 20)\n{div}")
+    print(by_state.head(20).to_string(index=False))
+    print(f"\n{div}\n  CAPACITY BY FUEL GROUP\n{div}")
+    print(by_fuel.to_string(index=False))
+    print(f"\n{div}\n  CAPACITY BY TECHNOLOGY (Top 20)\n{div}")
+    print(by_tech.head(20).to_string(index=False))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 4.  STATIC CHARTS  (matplotlib / seaborn → PNG)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _savefig(fig: plt.Figure, name: str) -> None:
+    path = os.path.join(OUTPUT_DIR, name)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved → {path}")
+
+
+def _chart_fuel_bar(by_fuel: pd.DataFrame) -> None:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = [FUEL_COLORS.get(g, "#adb5bd") for g in by_fuel["fuel_group"]]
+    bars   = ax.barh(by_fuel["fuel_group"], by_fuel["capacity_gw"], color=colors)
+    ax.bar_label(bars, fmt="%.0f GW", padding=4, fontsize=9)
+    ax.set_xlabel("Nameplate Capacity (GW)")
+    ax.set_title("US Operating Generator Capacity by Fuel Group", fontweight="bold")
+    ax.invert_yaxis()
+    ax.spines[["top", "right"]].set_visible(False)
+    _savefig(fig, "capacity_by_fuel_bar.png")
+
+
+def _chart_fuel_pie(by_fuel: pd.DataFrame) -> None:
+    fig, ax = plt.subplots(figsize=(8, 8))
+    colors  = [FUEL_COLORS.get(g, "#adb5bd") for g in by_fuel["fuel_group"]]
+    _, _, autotexts = ax.pie(
+        by_fuel["capacity_gw"],
+        labels=by_fuel["fuel_group"],
+        autopct=lambda p: f"{p:.1f}%" if p > 2 else "",
+        colors=colors, startangle=140, pctdistance=0.82,
+    )
+    for t in autotexts:
+        t.set_fontsize(8)
+    ax.set_title("US Electricity Generation Capacity Mix", fontweight="bold", pad=20)
+    _savefig(fig, "capacity_fuel_mix_pie.png")
+
+
+def _chart_state_bar(by_state: pd.DataFrame, top_n: int = 20) -> None:
+    data = by_state.head(top_n)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.bar(data["state"], data["capacity_gw"], color="#457b9d")
+    ax.set_xlabel("State")
+    ax.set_ylabel("Nameplate Capacity (GW)")
+    ax.set_title(f"Top {top_n} States by Electricity Generation Capacity",
+                 fontweight="bold")
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    ax.spines[["top", "right"]].set_visible(False)
+    plt.xticks(rotation=45, ha="right")
+    _savefig(fig, "capacity_by_state_bar.png")
+
+
+def _chart_trend(trend: pd.DataFrame) -> None:
+    if trend.empty:
+        return
+    sub = trend[(trend["year"] >= 1960) & (trend["year"] <= 2035)]
+    fig, ax = plt.subplots(figsize=(14, 7))
+    for grp in sorted(sub["fuel_group"].unique()):
+        s = sub[sub["fuel_group"] == grp]
+        ax.plot(s["year"], s["capacity_gw"],
+                label=grp, color=FUEL_COLORS.get(grp, "#adb5bd"),
+                linewidth=2, marker="o", markersize=3)
+    ax.set_xlabel("Year Online")
+    ax.set_ylabel("Capacity Added (GW)")
+    ax.set_title("Annual Generator Capacity Additions by Fuel Group", fontweight="bold")
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+    ax.spines[["top", "right"]].set_visible(False)
+    _savefig(fig, "capacity_trend_by_fuel.png")
+
+
+def _chart_stacked(trend: pd.DataFrame) -> None:
+    if trend.empty:
+        return
+    sub   = trend[(trend["year"] >= 1960) & (trend["year"] <= 2035)]
+    pivot = sub.pivot_table(index="year", columns="fuel_group",
+                            values="capacity_gw", aggfunc="sum").fillna(0)
+    ordered = [g for g in FUEL_COLORS if g in pivot.columns]
+    ordered += [c for c in pivot.columns if c not in ordered]
+    colors = [FUEL_COLORS.get(g, "#adb5bd") for g in ordered]
+    fig, ax = plt.subplots(figsize=(14, 7))
+    ax.stackplot(pivot.index, [pivot[g] for g in ordered],
+                 labels=ordered, colors=colors, alpha=0.85)
+    ax.set_xlabel("Year Online")
+    ax.set_ylabel("Cumulative Capacity Added (GW)")
+    ax.set_title("Stacked Annual Capacity Additions by Fuel Group", fontweight="bold")
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+    ax.spines[["top", "right"]].set_visible(False)
+    _savefig(fig, "capacity_stacked_area.png")
+
+
+def _chart_heatmap(df: pd.DataFrame) -> None:
+    top_states = (
+        df.groupby("stateid")["nameplate-capacity-mw"].sum()
+        .nlargest(20).index.tolist()
+    )
+    sub   = df[df["stateid"].isin(top_states)]
+    pivot = (
+        sub.groupby(["stateid", "fuel_group"])["nameplate-capacity-mw"]
+        .sum().unstack(fill_value=0) / 1_000
+    )
+    fig, ax = plt.subplots(figsize=(14, 8))
+    sns.heatmap(pivot, annot=True, fmt=".0f", cmap="YlOrRd",
+                linewidths=0.5, ax=ax,
+                cbar_kws={"label": "Capacity (GW)"})
+    ax.set_title("Capacity (GW) by State × Fuel Group (Top 20 States)",
+                 fontweight="bold")
+    plt.xticks(rotation=30, ha="right")
+    _savefig(fig, "capacity_heatmap_state_fuel.png")
+
+
+def _chart_top_plants(df: pd.DataFrame, top_n: int = 20) -> None:
+    name_col = "plant-name" if "plant-name" in df.columns else "plantid"
+    top = (
+        df.groupby([name_col, "stateid", "fuel_group"])["nameplate-capacity-mw"]
+        .sum().reset_index()
+        .sort_values("nameplate-capacity-mw", ascending=False)
+        .head(top_n)
+    )
+    top["label"]       = top[name_col] + " (" + top["stateid"] + ")"
+    top["capacity_gw"] = top["nameplate-capacity-mw"] / 1_000
+    colors = [FUEL_COLORS.get(g, "#adb5bd") for g in top["fuel_group"]]
+    fig, ax = plt.subplots(figsize=(12, 8))
+    bars = ax.barh(top["label"], top["capacity_gw"], color=colors)
+    ax.bar_label(bars, fmt="%.1f GW", padding=4, fontsize=9)
+    ax.set_xlabel("Nameplate Capacity (GW)")
+    ax.set_title(f"Top {top_n} Largest US Power Plants", fontweight="bold")
+    ax.invert_yaxis()
+    ax.spines[["top", "right"]].set_visible(False)
+    handles = [plt.Rectangle((0,0),1,1,
+               color=FUEL_COLORS.get(g,"#adb5bd"))
+               for g in top["fuel_group"].unique()]
+    ax.legend(handles, top["fuel_group"].unique(),
+              loc="lower right", fontsize=8)
+    _savefig(fig, "top_plants_bar.png")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 5.  INTERACTIVE HTML CHARTS  (plotly – optional)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _savehtml(fig, name: str) -> None:
+    path = os.path.join(OUTPUT_DIR, name)
+    fig.write_html(path, include_plotlyjs="cdn")
+    print(f"  Saved → {path}")
+
+
+def _plotly_charts(by_fuel, by_state, trend) -> None:
+    if not HAS_PLOTLY:
+        return
+
+    # Choropleth by state
+    fig = px.choropleth(
+        by_state, locations="state", locationmode="USA-states",
+        color="capacity_gw", color_continuous_scale="Blues", scope="usa",
+        title="Total Operating Generation Capacity by State (GW)",
+        labels={"capacity_gw": "GW"},
+    )
+    _savehtml(fig, "map_capacity_by_state.html")
+
+    # Fuel bar
+    fig = px.bar(
+        by_fuel.sort_values("capacity_gw"),
+        x="capacity_gw", y="fuel_group", orientation="h",
+        color="fuel_group", color_discrete_map=FUEL_COLORS,
+        text="capacity_gw",
+        title="US Operating Generator Capacity by Fuel Group (GW)",
+    )
+    fig.update_traces(texttemplate="%{text:.0f} GW", textposition="outside")
+    fig.update_layout(showlegend=False)
+    _savehtml(fig, "chart_capacity_by_fuel.html")
+
+    # Trend lines
+    if not trend.empty:
+        sub = trend[(trend["year"] >= 1960) & (trend["year"] <= 2035)]
+        fig = px.line(sub, x="year", y="capacity_gw", color="fuel_group",
+                      color_discrete_map=FUEL_COLORS, markers=True,
+                      title="Annual Generator Capacity Additions by Fuel Group")
+        _savehtml(fig, "chart_trend_by_fuel.html")
+
+    # Dashboard
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=("Capacity by Fuel (GW)", "Top 15 States (GW)",
+                        "Annual Additions (GW)", "Fuel Mix (%)"),
+        specs=[[{"type":"bar"},{"type":"bar"}],
+               [{"type":"scatter"},{"type":"pie"}]],
+    )
+    sf = by_fuel.sort_values("capacity_gw", ascending=True)
+    fig.add_trace(go.Bar(x=sf["capacity_gw"], y=sf["fuel_group"],
+                         orientation="h", showlegend=False,
+                         marker_color=[FUEL_COLORS.get(g,"#adb5bd")
+                                       for g in sf["fuel_group"]]),
+                  row=1, col=1)
+    t15 = by_state.head(15)
+    fig.add_trace(go.Bar(x=t15["state"], y=t15["capacity_gw"],
+                         marker_color="#457b9d", showlegend=False),
+                  row=1, col=2)
+    if not trend.empty:
+        sub = trend[(trend["year"]>=1960)&(trend["year"]<=2035)]
+        for grp in sorted(sub["fuel_group"].unique()):
+            s = sub[sub["fuel_group"]==grp]
+            fig.add_trace(go.Scatter(x=s["year"], y=s["capacity_gw"],
+                                     mode="lines+markers", name=grp,
+                                     line=dict(color=FUEL_COLORS.get(grp,"#adb5bd")),
+                                     marker=dict(size=3)),
+                          row=2, col=1)
+    fig.add_trace(go.Pie(labels=by_fuel["fuel_group"],
+                         values=by_fuel["capacity_gw"],
+                         marker_colors=[FUEL_COLORS.get(g,"#adb5bd")
+                                        for g in by_fuel["fuel_group"]],
+                         showlegend=False),
+                  row=2, col=2)
+    fig.update_layout(height=900,
+                      title_text="US Power Plants – Generation Capacity Dashboard")
+    _savehtml(fig, "dashboard_overview.html")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 6.  STATA INTEGRATION  (push cleaned DataFrame → Stata memory)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def push_to_stata() -> None:
+    """
+    Load the cleaned DataFrame into Stata's active dataset.
+
+    Call this after fetch_and_clean().  In Stata you can then run any
+    Stata command on the data immediately.
+
+    Example Stata session:
+        python: push_to_stata()
+        summarize nameplate_capacity_mw
+        tabulate fuel_group
+        histogram nameplate_capacity_mw, freq
+    """
+    global DF
+    if DF is None:
+        print("[error] No data loaded. Run fetch_and_clean() first.")
+        return
+    if not IN_STATA:
+        print("[warn] Not running inside Stata – skipping push_to_stata().")
+        print("       The cleaned DataFrame is available as eia_plants_stata.DF")
+        return
+
+    df = DF.copy()
+
+    # Stata variable names: lowercase, no hyphens, max 32 chars
+    df.columns = (
+        df.columns.str.lower()
+                  .str.replace(r"[^a-z0-9_]", "_", regex=True)
+                  .str[:32]
+    )
+
+    # Drop columns Stata can't handle (datetime objects → convert to string)
+    for col in df.select_dtypes(include="datetime").columns:
+        df[col] = df[col].dt.strftime("%Y-%m").fillna("")
+
+    # Stata only handles str, float64, int64 cleanly
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].fillna("").astype(str)
+        elif pd.api.types.is_integer_dtype(df[col]):
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(float)
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Clear Stata memory and load
+    sfi.Data.setObsTotal(len(df))
+
+    for col in df.columns:
+        if df[col].dtype == object:
+            sfi.Data.addVarStr(col, 244)
+        else:
+            sfi.Data.addVarDouble(col)
+
+    for col in df.columns:
+        vals = df[col].tolist()
+        for i, v in enumerate(vals):
+            sfi.Data.storeAt(col, i, v)
+
+    # Variable labels
+    label_map = {
+        "nameplate_capacity_mw":          "Nameplate capacity (MW)",
+        "net_summer_capacity_mw":         "Net summer capacity (MW)",
+        "net_winter_capacity_mw":         "Net winter capacity (MW)",
+        "operating_year":                 "Year generator came online",
+        "retirement_year":                "Planned retirement year",
+        "fuel_group":                     "Broad fuel category",
+        "fuel_label":                     "Specific fuel label",
+        "stateid":                        "State abbreviation",
+        "county":                         "County",
+        "latitude":                       "Latitude",
+        "longitude":                      "Longitude",
+        "period_year":                    "Data snapshot year",
+    }
+    for var, lbl in label_map.items():
+        if var in df.columns:
+            try:
+                sfi.Data.setVarLabel(var, lbl)
+            except Exception:
+                pass
+
+    print(f"  Pushed {len(df):,} observations × {len(df.columns)} variables to Stata.")
+    print("  Type  'describe'  or  'summarize'  in Stata to inspect the data.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 7.  SAVE CSV OUTPUTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+def save_csvs() -> None:
+    """Write all summary tables and the cleaned generator file to CSV."""
+    global DF, BY_STATE, BY_FUEL, BY_TECH, TREND
+    if DF is None:
+        print("[error] No data. Run fetch_and_clean() first.")
+        return
+
+    paths = {
+        "generators_clean.csv":          DF,
+        "summary_by_state.csv":          BY_STATE,
+        "summary_by_fuel.csv":           BY_FUEL,
+        "summary_by_technology.csv":     BY_TECH,
+        "trend_capacity_additions.csv":  TREND,
+    }
+    for fname, frame in paths.items():
+        if frame is not None and not (
+            isinstance(frame, pd.DataFrame) and frame.empty
+        ):
+            p = os.path.join(OUTPUT_DIR, fname)
+            frame.to_csv(p, index=False)
+            print(f"  Saved → {p}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 8.  HIGH-LEVEL PIPELINE FUNCTIONS  (call these from Stata)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def fetch_and_clean(
+    api_key:       str       = None,
+    status_filter: list[str] = None,
+) -> pd.DataFrame:
+    """
+    Fetch data from EIA API and clean it.  Populates global DF.
+
+    Parameters
+    ----------
+    api_key       : EIA key (defaults to EIA_API_KEY env var).
+    status_filter : e.g. ['OP'] for operating generators only.
+
+    Returns
+    -------
+    pd.DataFrame : Cleaned generator data (also stored in module-level DF).
+
+    Stata usage
+    -----------
+        python: import eia_plants_stata as eia
+        python: eia.fetch_and_clean(status_filter=["OP"])
+    """
+    global DF, EIA_API_KEY
+
+    key = (api_key or EIA_API_KEY).strip()
+    if not key or key == "YOUR_API_KEY":
+        raise ValueError(
+            "Set your API key first:\n"
+            "  python: import os\n"
+            "  python: os.environ['EIA_API_KEY'] = 'your_real_key'\n"
+            "  python: import eia_plants_stata as eia\n"
+            "  python: eia.EIA_API_KEY = 'your_real_key'"
+        )
+
+    print("\n[1/2] Fetching data from EIA API …")
+    df_raw = fetch_raw(api_key=key, status_filter=status_filter)
+    print(f"      {len(df_raw):,} raw records retrieved.")
+
+    print("\n[2/2] Cleaning data …")
+    DF = clean(df_raw)
+    print(f"      {len(DF):,} unique generators after deduplication.")
+
+    return DF
+
+
+def build_summaries(print_tables: bool = True) -> dict:
+    """
+    Build state / fuel / tech summary tables and trend data.
+    Populates globals BY_STATE, BY_FUEL, BY_TECH, TREND.
+
+    Stata usage
+    -----------
+        python: eia.build_summaries()
+    """
+    global DF, BY_STATE, BY_FUEL, BY_TECH, TREND
+
+    if DF is None:
+        print("[error] Run fetch_and_clean() first.")
+        return {}
+
+    BY_STATE = _state_summary(DF)
+    BY_FUEL  = _fuel_summary(DF)
+    BY_TECH  = _tech_summary(DF)
+    TREND    = _capacity_trend(DF)
+
+    if print_tables:
+        _print_summaries(BY_STATE, BY_FUEL, BY_TECH)
+
+    return {"by_state": BY_STATE, "by_fuel": BY_FUEL,
+            "by_tech": BY_TECH, "trend": TREND}
+
+
+def make_charts(include_plotly: bool = True) -> None:
+    """
+    Generate all PNG charts (always) and HTML interactive charts (if plotly
+    is installed and include_plotly=True).
+
+    Output folder: eia_output/  next to this script.
+
+    Stata usage
+    -----------
+        python: eia.make_charts()
+    """
+    global DF, BY_STATE, BY_FUEL, BY_TECH, TREND
+
+    if DF is None:
+        print("[error] Run fetch_and_clean() and build_summaries() first.")
+        return
+
+    if BY_FUEL is None:
+        build_summaries(print_tables=False)
+
+    print("\n  Generating PNG charts …")
+    _chart_fuel_bar(BY_FUEL)
+    _chart_fuel_pie(BY_FUEL)
+    _chart_state_bar(BY_STATE)
+    _chart_top_plants(DF)
+    _chart_heatmap(DF)
+    if TREND is not None and not TREND.empty:
+        _chart_trend(TREND)
+        _chart_stacked(TREND)
+
+    if include_plotly:
+        print("\n  Generating interactive HTML charts …")
+        _plotly_charts(BY_FUEL, BY_STATE, TREND)
+
+
+def run_full_pipeline(
+    api_key:       str       = None,
+    status_filter: list[str] = None,
+    push_stata:    bool      = True,
+) -> None:
+    """
+    Run the complete pipeline in one call:
+      fetch → clean → summaries → charts → CSV → push to Stata
+
+    Parameters
+    ----------
+    api_key       : EIA API key (or set EIA_API_KEY env var).
+    status_filter : e.g. ['OP'].  None = all statuses.
+    push_stata    : If True and running inside Stata, load data into Stata.
+
+    Stata usage
+    -----------
+        python script "eia_plants_stata.py"   <- runs main() automatically
+
+      Or step by step:
+        python: import eia_plants_stata as eia
+        python: eia.run_full_pipeline(status_filter=["OP"])
+    """
+    div = "=" * 72
+    print(f"\n{div}")
+    print("  US Power Plants – EIA Data Pipeline")
+    print(f"{div}\n")
+
+    try:
+        fetch_and_clean(api_key=api_key, status_filter=status_filter)
+        build_summaries()
+        make_charts()
+        save_csvs()
+        if push_stata:
+            push_to_stata()
+    except Exception as exc:
+        print(f"\n[FATAL ERROR] {exc}")
+        traceback.print_exc()
+        return
+
+    print(f"\n{div}")
+    print(f"  Done!  Outputs in: {OUTPUT_DIR}")
+    print(f"{div}\n")
+    for f in sorted(os.listdir(OUTPUT_DIR)):
+        sz = os.path.getsize(os.path.join(OUTPUT_DIR, f))
+        print(f"  {f:<48}  {sz:>10,} bytes")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 9.  ENTRY POINT
+#     When run via  `python script "eia_plants_stata.py"`  Stata executes
+#     the module top-to-bottom, which triggers main() here.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def main():
+    run_full_pipeline(status_filter=["OP"], push_stata=True)
+
+
+if __name__ == "__main__":
+    main()
+
 end
