@@ -1,0 +1,143 @@
+python:
+import requests
+import json
+import pandas as pd
+
+API_KEY = "YOUR_API_KEY"
+
+# Discover metadata: valid fields, facets, frequencies for this endpoint
+r = requests.get(
+    "https://api.eia.gov/v2/electricity/operating-generator-capacity/",
+    params={"api_key": API_KEY}
+)
+print(json.dumps(r.json(), indent=2))
+
+end
+
+python:
+import requests
+import json
+import pandas as pd
+
+API_KEY = "YOUR_API_KEY"
+EIA_URL = "https://api.eia.gov/v2/electricity/operating-generator-capacity/data/"
+
+header_params = {
+    "frequency": "annual",
+    "data": [
+        "summer-capacity",        # Capacity in MW
+        "nameplate-capacity-mw",  # Nameplate capacity
+        "operating-year",         # Establishment / operating year
+        "county",                 # County name
+        "latitude",
+        "longitude"
+    ],
+    "facets": {
+        "energy_source_code": ["NUC"]  # Nuclear only
+    },
+    "sort": [{"column": "operating-year", "direction": "asc"}],
+    "offset": 0,
+    "length": 5000
+}
+
+response = requests.get(
+    EIA_URL,
+    params={"api_key": API_KEY},
+    headers={"X-Params": json.dumps(header_params)}
+)
+
+result = response.json()
+
+if "response" not in result:
+    print("ERROR:", result)
+else:
+    df = pd.DataFrame(result["response"]["data"])
+    print(f"Total records: {result['response']['total']}")
+    print(df.columns.tolist())   # <-- Print all returned columns
+    print(df.head())
+end
+
+python:
+import requests
+import json
+import pandas as pd
+
+API_KEY = "YOUR_API_KEY"
+
+# EIA-860 annual generator data — includes FIPS, county, plant metadata
+EIA_860_URL = "https://api.eia.gov/v2/electricity/operating-generator-capacity/data/"
+
+header_params = {
+    "frequency": "annual",
+    "data": [
+        "nameplate-capacity-mw",
+        "operating-year",     # Year plant became operational (establishment year)
+        "county",             # County name
+        "stateid",            # State abbreviation
+        "latitude",
+        "longitude",
+        "status"              # Operating status (OP = operating)
+    ],
+    "facets": {
+        "energy_source_code": ["NUC"],
+        "status": ["OP"]       # Only currently operating plants
+    },
+    "sort": [{"column": "period", "direction": "desc"}],
+    "offset": 0,
+    "length": 5000
+}
+
+response = requests.get(
+    EIA_860_URL,
+    params={"api_key": API_KEY},
+    headers={"X-Params": json.dumps(header_params)}
+)
+
+result = response.json()
+
+if "response" not in result:
+    print("ERROR:", result)
+else:
+    df_plants = pd.DataFrame(result["response"]["data"])
+
+    # Keep most relevant columns (rename for clarity)
+    print(df_plants.columns.tolist())  # first inspect what came back
+end
+
+python:
+import requests
+import json
+import pandas as pd
+
+API_KEY = "YOUR_EIA_KEY"
+CENSUS_KEY = "YOUR_CENSUS_KEY"
+
+# --- Get EIA plant data ---
+eia_df = pd.DataFrame(...)  # your df_plants from Step 3
+
+# --- Get FIPS crosswalk from Census ---
+census_url = "https://api.census.gov/data/2020/acs/acs5"
+census_resp = requests.get(census_url, params={
+    "get": "NAME,GEO_ID",
+    "for": "county:*",
+    "key": CENSUS_KEY
+})
+census_data = census_resp.json()
+df_fips = pd.DataFrame(census_data[1:], columns=census_data[0])
+
+# Extract state FIPS and county FIPS from GEO_ID (format: 0500000US{state}{county})
+df_fips["state_fips"] = df_fips["GEO_ID"].str[-5:-3]
+df_fips["county_fips"] = df_fips["GEO_ID"].str[-3:]
+df_fips["full_fips"] = df_fips["GEO_ID"].str[-5:]
+
+# Merge EIA plant data with FIPS on state + county name
+df_merged = eia_df.merge(
+    df_fips[["NAME", "full_fips", "state", "county"]],
+    left_on=["stateid", "county"],
+    right_on=["state", "county"],
+    how="left"
+)
+
+print(df_merged[["plantid", "plant_name", "stateid", "county", "full_fips",
+                  "operating-year", "nameplate-capacity-mw"]].head(10))
+end
