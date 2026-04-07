@@ -53,7 +53,7 @@ python query
    -------------------------------------------------------------------------- */
 python:
 
-import os, json, time
+import os, json, time, datetime
 import requests
 import pandas as pd
 
@@ -75,6 +75,12 @@ if EIA_API_KEY == "YOUR_API_KEY":
         "EIA API key not set. Export EIA_API_KEY in your shell before opening "
         "Stata, or replace 'YOUR_API_KEY' with your actual key in this block."
     )
+
+# ── Last-10-years window ───────────────────────────────────────────────────
+_current_year = datetime.date.today().year
+START_YEAR = _current_year - 9   # first period to include (10 years back)
+END_YEAR   = _current_year - 1   # most recent completed annual period
+print(f"Fetching data for period {START_YEAR}–{END_YEAR} (last 10 years).")
 
 # ── Fuel-group helper (used in all subsequent blocks) ─────────────────────
 FUEL_COLORS = {
@@ -113,6 +119,8 @@ params = {
         "prime-mover-code", "plant-name", "utility-name", "sector-name",
     ],
     "facets": {"status": ["OP"]},
+    "start": str(START_YEAR),
+    "end":   str(END_YEAR),
     "sort": [{"column": "period", "direction": "desc"}],
     "offset": 0,
     "length": 5000,

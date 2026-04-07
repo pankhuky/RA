@@ -115,6 +115,8 @@ def fetch_eia_data(
     api_key: str,
     status_filter: list[str] | None = None,
     page_size: int = 5000,
+    start_year: int | None = None,
+    end_year: int | None = None,
 ) -> pd.DataFrame:
     """
     Download operating generator capacity from EIA API v2 (EIA-860).
@@ -125,6 +127,8 @@ def fetch_eia_data(
     api_key      : EIA v2 API key.
     status_filter: List of status codes to include.  None → all statuses.
     page_size    : Records per API request (max 5000).
+    start_year   : First annual period to include (e.g. 2016).  None → no lower bound.
+    end_year     : Last annual period to include (e.g. 2025).   None → no upper bound.
 
     Returns
     -------
@@ -159,6 +163,11 @@ def fetch_eia_data(
         "offset": 0,
         "length": page_size,
     }
+
+    if start_year is not None:
+        params["start"] = str(start_year)
+    if end_year is not None:
+        params["end"] = str(end_year)
 
     if status_filter:
         params["facets"] = {"status": status_filter}
@@ -757,13 +766,24 @@ def save_tables(
 # ── 7. Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    import datetime
+    current_year = datetime.date.today().year
+    start_year   = current_year - 9   # inclusive: last 10 annual periods
+    end_year     = current_year - 1   # most recent completed year
+
     print("\n" + "=" * 72)
     print("  US Power Plants – Electricity Generation Details")
+    print(f"  Period: {start_year}–{end_year} (last 10 years)")
     print("=" * 72)
 
     # ── Fetch data
-    print("\n[1/6] Fetching operating generator data from EIA API …")
-    df_raw = fetch_eia_data(EIA_API_KEY, status_filter=["OP"])
+    print(f"\n[1/6] Fetching operating generator data ({start_year}–{end_year}) …")
+    df_raw = fetch_eia_data(
+        EIA_API_KEY,
+        status_filter=["OP"],
+        start_year=start_year,
+        end_year=end_year,
+    )
     print(f"      Retrieved {len(df_raw):,} generator records.")
 
     # ── Clean data
