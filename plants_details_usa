@@ -33,7 +33,7 @@ SETUP
         python script "eia_plants_stata.py"
 
     Or run individual steps:
-        python: fetch_and_clean()
+        python: fetch_and_clean(start_period="2020-01", end_period="2023-12")
         python: build_summaries()
         python: make_charts()
         python: push_to_stata()    <- loads data into Stata memory
@@ -152,6 +152,8 @@ def fetch_raw(
     api_key:       str            = EIA_API_KEY,
     status_filter: list[str]      = None,
     page_size:     int            = 5000,
+    start_period:  str            = None,
+    end_period:    str            = None,
 ) -> pd.DataFrame:
     """
     Download generator-capacity records from EIA API v2.
@@ -162,6 +164,10 @@ def fetch_raw(
     status_filter : List of status codes, e.g. ['OP'] for operating only.
                     None = all statuses.
     page_size     : Records per request (max 5 000).
+    start_period  : Earliest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2020-01".  None = no lower bound.
+    end_period    : Latest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2023-12".  None = no upper bound.
 
     Returns
     -------
@@ -193,6 +199,10 @@ def fetch_raw(
             ("sort[0][column]",    "period"),
             ("sort[0][direction]", "desc"),
         ]
+        if start_period:
+            params.append(("start", start_period))
+        if end_period:
+            params.append(("end", end_period))
         for i, col in enumerate(data_cols):
             params.append((f"data[{i}]", col))
         if status_filter:
@@ -699,6 +709,8 @@ def save_csvs() -> None:
 def fetch_and_clean(
     api_key:       str       = None,
     status_filter: list[str] = None,
+    start_period:  str       = None,
+    end_period:    str       = None,
 ) -> pd.DataFrame:
     """
     Fetch data from EIA API and clean it.  Populates global DF.
@@ -707,6 +719,10 @@ def fetch_and_clean(
     ----------
     api_key       : EIA key (defaults to EIA_API_KEY env var).
     status_filter : e.g. ['OP'] for operating generators only.
+    start_period  : Earliest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2020-01".  None = no lower bound.
+    end_period    : Latest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2023-12".  None = no upper bound.
 
     Returns
     -------
@@ -715,7 +731,8 @@ def fetch_and_clean(
     Stata usage
     -----------
         python: import eia_plants_stata as eia
-        python: eia.fetch_and_clean(status_filter=["OP"])
+        python: eia.fetch_and_clean(status_filter=["OP"],
+                                    start_period="2020-01", end_period="2023-12")
     """
     global DF, EIA_API_KEY
 
@@ -729,8 +746,13 @@ def fetch_and_clean(
             "  python: eia.EIA_API_KEY = 'your_real_key'"
         )
 
-    print("\n[1/2] Fetching data from EIA API …")
-    df_raw = fetch_raw(api_key=key, status_filter=status_filter)
+    period_msg = ""
+    if start_period or end_period:
+        period_msg = (f"  (period: {start_period or 'earliest'}"
+                      f" → {end_period or 'latest'})")
+    print(f"\n[1/2] Fetching data from EIA API …{period_msg}")
+    df_raw = fetch_raw(api_key=key, status_filter=status_filter,
+                       start_period=start_period, end_period=end_period)
     print(f"      {len(df_raw):,} raw records retrieved.")
 
     print("\n[2/2] Cleaning data …")
@@ -805,6 +827,8 @@ def make_charts(include_plotly: bool = True) -> None:
 def run_full_pipeline(
     api_key:       str       = None,
     status_filter: list[str] = None,
+    start_period:  str       = None,
+    end_period:    str       = None,
     push_stata:    bool      = True,
 ) -> None:
     """
@@ -815,6 +839,10 @@ def run_full_pipeline(
     ----------
     api_key       : EIA API key (or set EIA_API_KEY env var).
     status_filter : e.g. ['OP'].  None = all statuses.
+    start_period  : Earliest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2020-01".  None = no lower bound.
+    end_period    : Latest period to fetch, inclusive, in "YYYY-MM" format.
+                    e.g. "2023-12".  None = no upper bound.
     push_stata    : If True and running inside Stata, load data into Stata.
 
     Stata usage
@@ -823,7 +851,8 @@ def run_full_pipeline(
 
       Or step by step:
         python: import eia_plants_stata as eia
-        python: eia.run_full_pipeline(status_filter=["OP"])
+        python: eia.run_full_pipeline(status_filter=["OP"],
+                                      start_period="2020-01", end_period="2023-12")
     """
     div = "=" * 72
     print(f"\n{div}")
@@ -831,7 +860,8 @@ def run_full_pipeline(
     print(f"{div}\n")
 
     try:
-        fetch_and_clean(api_key=api_key, status_filter=status_filter)
+        fetch_and_clean(api_key=api_key, status_filter=status_filter,
+                        start_period=start_period, end_period=end_period)
         build_summaries()
         make_charts()
         save_csvs()
