@@ -47,19 +47,22 @@ python:
 import sys, os
 
 # ── Point to the folder containing plants_details_usa.py ──────────────────
-# By default we assume the .py file is in the same directory as this .do file.
-# If not, replace the path below with the correct folder.
-script_dir = os.path.dirname(os.path.abspath("plants_details_usa.do")) \
-             if os.path.exists("plants_details_usa.do") else os.getcwd()
+# Stata's current working directory (cd / pwd) is where Stata looks for files,
+# so we add it to Python's module search path.  If plants_details_usa.py lives
+# elsewhere, add that path instead.
+script_dir = os.getcwd()
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
 # ── Import the analysis module ─────────────────────────────────────────────
 import plants_details_usa as pu
 
-# ── Set your EIA API key here ──────────────────────────────────────────────
+# ── Set your EIA API key ───────────────────────────────────────────────────
+# RECOMMENDED: export EIA_API_KEY=<your_key> in your shell before opening Stata
+# so the key is read from the environment and never stored in this file.
+# If the environment variable is absent the line below is used as a fallback.
 # Get a free key at https://www.eia.gov/opendata/
-pu.EIA_API_KEY = "YOUR_API_KEY"          # <── replace with your key
+pu.EIA_API_KEY = os.environ.get("EIA_API_KEY", "YOUR_API_KEY")
 
 # ── (Optional) Override output directory ──────────────────────────────────
 # Defaults to  output/  inside Stata's current working directory.
