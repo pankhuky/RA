@@ -23,7 +23,10 @@ import time
 import requests
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")          # non-interactive backend – safe for scripts
+try:
+    matplotlib.use("Agg")      # non-interactive backend – safe for scripts/Stata
+except Exception:
+    pass                       # backend already set (e.g. when run from Stata)
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import seaborn as sns
