@@ -35,7 +35,11 @@ from plotly.subplots import make_subplots
 
 EIA_API_KEY = os.environ.get("EIA_API_KEY", "YOUR_API_KEY")
 EIA_BASE_URL = "https://api.eia.gov/v2/electricity/operating-generator-capacity/data/"
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+try:
+    OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+except NameError:
+    # __file__ is not defined when run interactively or with exec(); use cwd
+    OUTPUT_DIR = os.path.join(os.getcwd(), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Human-readable labels for the main fuel source codes tracked by EIA-860
